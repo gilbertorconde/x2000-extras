@@ -1,0 +1,33 @@
+#!/bin/sh
+# Drive the "Internet" LED from actual connectivity rather than from one
+# interface, so it works whether the uplink is the ethernet WAN or the modem.
+# OEM behaviour: green when connected, off when not.
+#
+# With mwan3 running, reuse its tracking: it already probes every uplink, so
+# the LED is on when any of them is online. Without it, probe ourselves.
+
+LED=/sys/class/leds/green:wan/brightness
+PROBE_HOSTS="1.1.1.1 8.8.8.8 9.9.9.9"
+MWAN3_STATE_DIR=/run/mwan3/iface_state
+
+[ -w "$LED" ] || exit 0
+
+if [ -n "$(ls -A "$MWAN3_STATE_DIR" 2>/dev/null)" ]; then
+	grep -qx online "$MWAN3_STATE_DIR"/* 2>/dev/null && echo 1 > "$LED" || echo 0 > "$LED"
+	exit 0
+fi
+
+# No default route at all -> definitely not connected, skip the probe.
+if ! ip -4 route show default 2>/dev/null | grep -q .; then
+	echo 0 > "$LED"
+	exit 0
+fi
+
+for h in $PROBE_HOSTS; do
+	if ping -c 1 -W 3 "$h" >/dev/null 2>&1; then
+		echo 1 > "$LED"
+		exit 0
+	fi
+done
+
+echo 0 > "$LED"

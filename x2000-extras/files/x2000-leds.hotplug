@@ -1,0 +1,9 @@
+#!/bin/sh
+# Refresh the script-driven LEDs as soon as an interface changes state, so the
+# cellular bars and the Internet LED do not wait for the next poll.
+case "$ACTION" in
+	ifup|ifdown)
+		/usr/sbin/internet-led
+		/usr/sbin/cellular-leds
+		;;
+esac

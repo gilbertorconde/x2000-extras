@@ -1,0 +1,43 @@
+#!/bin/sh
+# Bring the cellular WAN back after a carrier-side hangup.
+#
+# netifd does not do this itself: the modemmanager proto reports a pppd HANGUP
+# (exit 16) via proto_notify_error but does not call proto_block_restart, so
+# nothing re-triggers setup. The modem device never disappears, so no event
+# fires and the link stays down until something calls ifup. netifd also ends up
+# with autostart=false for the interface, so it will never retry on its own.
+#
+# Watches the first modemmanager interface, whatever it is called. It checks
+# that interface itself rather than the default route, which may belong to
+# another uplink (e.g. ethernet WAN under mwan3).
+#
+# Deliberately conservative. Repeated attach attempts put the SIM into LTE
+# T3402 backoff (~12 min, restarted by every retry), so this backs off
+# exponentially and never hammers the modem.
+
+IFACE=$(uci -q show network | sed -n "s/^network\.\([^.]*\)\.proto='modemmanager'$/\1/p" | head -n1)
+[ -n "$IFACE" ] || exit 0
+STATE=/tmp/wan-watchdog.state          # "<fail_count> <next_attempt_epoch>"
+BASE=300                               # first retry after 5 min
+MAX=3600                               # cap backoff at 1 hour
+
+now=$(date +%s)
+
+status=$(ubus call network.interface.$IFACE status 2>/dev/null) || exit 0
+echo "$status" | grep -q '"up": true'      && { rm -f "$STATE"; exit 0; }
+echo "$status" | grep -q '"pending": true' && exit 0   # mid-setup, leave alone
+echo "$status" | grep -q '"available": true' || exit 0 # no modem, nothing to do
+
+read -r fails next < "$STATE" 2>/dev/null || { fails=0; next=0; }
+[ -n "$fails" ] || fails=0
+[ -n "$next" ] || next=0
+
+[ "$now" -lt "$next" ] && exit 0       # still backing off
+
+fails=$((fails + 1))
+delay=$((BASE * fails))
+[ "$delay" -gt "$MAX" ] && delay=$MAX
+echo "$fails $((now + delay))" > "$STATE"
+
+logger -t wan-watchdog "$IFACE down, attempt $fails; next retry in ${delay}s"
+ifup "$IFACE"

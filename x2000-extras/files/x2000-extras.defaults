@@ -1,0 +1,152 @@
+#!/bin/sh
+# One-time setup for x2000-extras. Runs on first boot of an image that includes
+# the package, or right after installing it on a running box.
+
+. /lib/functions.sh
+
+# --- Internet LED ------------------------------------------------------------
+# board.d/01_leds binds the Internet LED to the "wan" netdev, which only works
+# when the uplink is the ethernet WAN port. Hand it to internet-led instead,
+# which follows real connectivity over whatever uplink is active.
+
+detach_wan_led() {
+	local cfg="$1" sysfs
+	config_get sysfs "$cfg" sysfs
+	[ "$sysfs" = "green:wan" ] || return 0
+	uci set system."$cfg".trigger='none'
+	uci -q delete system."$cfg".dev
+	uci -q delete system."$cfg".mode
+}
+
+config_load system
+config_foreach detach_wan_led led
+uci commit system
+
+# --- Reset button --------------------------------------------------------------
+# procd only runs /etc/rc.button/<button>, and base-files owns that file, so
+# keep the stock handler aside and put ours in place. prerm puts it back.
+
+HANDLER=/usr/libexec/x2000-extras/reset-button
+if ! cmp -s "$HANDLER" /etc/rc.button/reset; then
+	[ -e /etc/rc.button/reset.stock ] || cp /etc/rc.button/reset /etc/rc.button/reset.stock
+	cp "$HANDLER" /etc/rc.button/reset
+fi
+
+# --- Uplinks -------------------------------------------------------------------
+# Two uplinks: the modem (ModemManager) and the ethernet WAN port. Reuse the
+# interfaces that already exist, whatever they are called, and create only the
+# missing ones. The ethernet one is preferred whenever it is online.
+
+MODEM_DEVICE='/sys/devices/platform/soc@0/8a00000.usb/xhci-hcd.1.auto/usb2/2-1'
+cell=
+eth=
+
+find_uplinks() {
+	local proto device
+	config_get proto "$1" proto
+	config_get device "$1" device
+	[ -z "$cell" ] && [ "$proto" = modemmanager ] && cell="$1"
+	[ -z "$eth" ] && [ "$proto" = dhcp ] && [ "$device" = wan ] && eth="$1"
+}
+
+config_load network
+config_foreach find_uplinks interface
+
+if [ -z "$cell" ]; then
+	cell=wwan
+	uci set network.$cell=interface
+	uci set network.$cell.proto='modemmanager'
+	uci set network.$cell.device="$MODEM_DEVICE"
+	uci set network.$cell.iptype='ipv4'
+	# configure the initial EPS bearer rather than deleting it: deleting forces
+	# an LTE detach/reattach on every attempt, which networks throttle
+	uci set network.$cell.init_epsbearer='default'
+	# no APN set: most carriers hand one out; set network.wwan.apn if not
+fi
+
+if [ -z "$eth" ]; then
+	eth=waneth
+	uci set network.$eth=interface
+	uci set network.$eth.proto='dhcp'
+	uci set network.$eth.device='wan'
+fi
+
+# mwan3 needs a distinct metric on each uplink
+[ -n "$(uci -q get network.$eth.metric)" ] || uci set network.$eth.metric='10'
+[ -n "$(uci -q get network.$cell.metric)" ] || uci set network.$cell.metric='20'
+uci commit network
+
+add_to_wan_zone() {
+	local name networks n
+	config_get name "$1" name
+	[ "$name" = wan ] || return 0
+	config_get networks "$1" network
+	for n in $eth $cell; do
+		case " $networks " in
+			*" $n "*) ;;
+			*) uci add_list firewall."$1".network="$n" ;;
+		esac
+	done
+}
+
+config_load firewall
+config_foreach add_to_wan_zone zone
+uci commit firewall
+
+# --- mwan3 ---------------------------------------------------------------------
+# Replace mwan3's example config (recognisable by its 'wanb' interface) with a
+# plain failover: ethernet first, modem second. A config someone has already
+# made their own is left alone.
+
+if [ ! -s /etc/config/mwan3 ] || uci -q get mwan3.wanb >/dev/null; then
+	cat > /etc/config/mwan3 <<-EOF
+	config globals 'globals'
+		option mmx_mask '0x3F00'
+
+	config interface '$eth'
+		option enabled '1'
+		option family 'ipv4'
+		list track_ip '1.1.1.1'
+		list track_ip '8.8.8.8'
+		list track_ip '9.9.9.9'
+		option reliability '1'
+		option interval '10'
+
+	config interface '$cell'
+		option enabled '1'
+		option family 'ipv4'
+		list track_ip '1.1.1.1'
+		list track_ip '8.8.8.8'
+		list track_ip '9.9.9.9'
+		option reliability '1'
+		# probe less often: it is metered
+		option interval '30'
+
+	config member 'eth_m1'
+		option interface '$eth'
+		option metric '1'
+
+	config member 'cell_m2'
+		option interface '$cell'
+		option metric '2'
+
+	config policy 'failover'
+		list use_member 'eth_m1'
+		list use_member 'cell_m2'
+		# if tracking says everything is down, still try the main table
+		option last_resort 'default'
+
+	config rule 'default_rule'
+		option dest_ip '0.0.0.0/0'
+		option family 'ipv4'
+		option use_policy 'failover'
+	EOF
+fi
+
+# --- Cellular watchdog ---------------------------------------------------------
+
+grep -qs /usr/sbin/wan-watchdog /etc/crontabs/root ||
+	echo '* * * * * /usr/sbin/wan-watchdog' >> /etc/crontabs/root
+/etc/init.d/cron enable
+
+exit 0

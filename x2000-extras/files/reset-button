@@ -1,0 +1,38 @@
+#!/bin/sh
+# Stock reset handling plus a mode toggle (see /usr/sbin/router-mode):
+#   tap (<1s)  reboot
+#   hold 2-5s  toggle home/travel mode
+#   hold 10s+  factory reset (power LED starts blinking at 10s: let go)
+# Factory reset moved up from 5s so a slow toggle can't wipe the box.
+
+. /lib/functions.sh
+
+OVERLAY="$( grep ' /overlay ' /proc/mounts )"
+
+case "$ACTION" in
+pressed)
+	return 10
+;;
+timeout)
+	[ -n "$OVERLAY" ] || return 0
+	. /etc/diag.sh
+	set_state failsafe
+;;
+released)
+	if [ "$SEEN" -lt 1 ]
+	then
+		echo "REBOOT" > /dev/console
+		sync
+		reboot
+	elif [ "$SEEN" -ge 2 ] && [ "$SEEN" -le 5 ]
+	then
+		/usr/sbin/router-mode toggle >/dev/console 2>&1 &
+	elif [ "$SEEN" -ge 10 ] && [ -n "$OVERLAY" ]
+	then
+		echo "FACTORY RESET" > /dev/console
+		factoryreset -y && reboot &
+	fi
+;;
+esac
+
+return 0

@@ -1,0 +1,109 @@
+#!/bin/sh
+# Switch between the two roles this box has:
+#   home   - cellular backup WAN for OPNsense. Wi-Fi off; the LAN port feeds
+#            OPNsense's WAN. The firewall stays at its defaults: on a CGNAT
+#            SIM it only does the masquerade (unavoidable, the carrier hands
+#            out one address) and keeps the router's own services off the
+#            cellular side. OPNsense does the real filtering.
+#   travel - normal travel router: Wi-Fi on, default firewall.
+#
+# Only Wi-Fi changes between modes. The radios and SSIDs (wifi-device and
+# wifi-iface sections) that were enabled when going home are remembered and
+# re-enabled on the way back, so one you turned off on purpose stays off.
+
+STATE=/etc/router-mode
+RADIOS=/etc/router-mode.radios
+LED=/sys/class/leds/green:power
+
+. /lib/functions.sh
+
+any_enabled() {
+	local disabled
+	config_get disabled "$1" disabled 0
+	[ "$disabled" = 1 ] || found=1
+}
+
+current() {
+	[ -s "$STATE" ] && { cat "$STATE"; return; }
+	# first run: infer from the radios
+	found=0
+	config_load wireless
+	config_foreach any_enabled wifi-device
+	[ "$found" = 1 ] && echo travel || echo home
+}
+
+led_busy() {
+	echo timer > "$LED/trigger" 2>/dev/null
+	echo 100 > "$LED/delay_on" 2>/dev/null
+	echo 100 > "$LED/delay_off" 2>/dev/null
+}
+
+led_done() {
+	echo default-on > "$LED/trigger" 2>/dev/null
+}
+
+save_radio() {
+	local disabled
+	config_get disabled "$1" disabled 0
+	[ "$disabled" = 1 ] || echo "$1" >> "$RADIOS"
+}
+
+all_radios() {
+	local encryption
+	# never bring up an open SSID by accident
+	config_get encryption "$1" encryption none
+	[ "$2" = wifi-iface ] && [ "$encryption" = none ] && return 0
+	echo "$1" >> "$RADIOS"
+}
+
+go_home() {
+	: > "$RADIOS"
+	config_load wireless
+	config_foreach save_radio wifi-device
+	config_foreach save_radio wifi-iface
+	while read -r r; do
+		uci set wireless."$r".disabled=1
+	done < "$RADIOS"
+	uci commit wireless
+	wifi
+}
+
+go_travel() {
+	# never went home (or the list was lost): bring up every radio
+	if [ ! -s "$RADIOS" ]; then
+		config_load wireless
+		config_foreach all_radios wifi-device wifi-device
+		config_foreach all_radios wifi-iface wifi-iface
+	fi
+	while read -r r; do
+		uci set wireless."$r".disabled=0
+	done < "$RADIOS"
+	uci commit wireless
+	rm -f "$RADIOS"
+	wifi
+}
+
+apply() {
+	[ "$1" = "$(current)" ] && { echo "already in $1 mode"; return 0; }
+	logger -t router-mode "switching to $1 mode"
+	led_busy
+	case "$1" in
+		home)   go_home ;;
+		travel) go_travel ;;
+	esac
+	echo "$1" > "$STATE"
+	led_done
+	echo "$1 mode"
+}
+
+case "$1" in
+	home|travel) apply "$1" ;;
+	toggle)
+		[ "$(current)" = home ] && apply travel || apply home
+		;;
+	status|'') current ;;
+	*)
+		echo "usage: $0 home|travel|toggle|status" >&2
+		exit 1
+		;;
+esac

@@ -1,0 +1,47 @@
+#!/bin/sh
+# Light the four cellular signal LEDs from ModemManager's signal quality.
+# OEM drives these from its own daemon; OpenWrt has no trigger for modem
+# signal, so approximate it here. All four go dark when the modem is absent
+# or not registered.
+
+LEDDIR=/sys/class/leds
+PREFIX="green:indicator-"
+
+set_bars() {
+	i=1
+	while [ $i -le 4 ]; do
+		[ $i -le "$1" ] && v=1 || v=0
+		echo $v > "$LEDDIR/$PREFIX$i/brightness" 2>/dev/null
+		i=$((i + 1))
+	done
+}
+
+[ -d "$LEDDIR/${PREFIX}1" ] || exit 0
+
+modem=$(mmcli -L 2>/dev/null | sed -n 's#.*/Modem/\([0-9][0-9]*\).*#\1#p' | head -1)
+if [ -z "$modem" ]; then
+	set_bars 0
+	exit 0
+fi
+
+info=$(mmcli -m "$modem" --output-keyvalue 2>/dev/null)
+state=$(echo "$info" | sed -n 's/^modem\.generic\.state  *: *//p')
+qual=$(echo "$info" | sed -n 's/^modem\.generic\.signal-quality\.value  *: *//p')
+
+case "$state" in
+	connected|registered) ;;
+	*) set_bars 0; exit 0 ;;
+esac
+
+# signal-quality is a 0-100 percentage
+case "$qual" in
+	''|*[!0-9]*) set_bars 0 ;;
+	*)
+		if   [ "$qual" -ge 80 ]; then set_bars 4
+		elif [ "$qual" -ge 60 ]; then set_bars 3
+		elif [ "$qual" -ge 40 ]; then set_bars 2
+		elif [ "$qual" -ge 20 ]; then set_bars 1
+		else set_bars 0
+		fi
+		;;
+esac

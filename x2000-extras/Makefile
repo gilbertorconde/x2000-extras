@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=x2000-extras
 PKG_VERSION:=1
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_LICENSE:=GPL-2.0-only
 PKG_MAINTAINER:=Gilberto Conde <gilbertorconde@gmail.com>
 
@@ -57,6 +57,7 @@ define Package/x2000-extras/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 /etc/init.d/led reload
+wifi reload
 /etc/init.d/network reload
 /etc/init.d/firewall reload
 /etc/init.d/mwan3 restart

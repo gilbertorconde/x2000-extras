@@ -5,11 +5,14 @@
 #            SIM it only does the masquerade (unavoidable, the carrier hands
 #            out one address) and keeps the router's own services off the
 #            cellular side. OPNsense does the real filtering.
-#   travel - normal travel router: Wi-Fi on, default firewall.
+#   travel - normal travel router: Wi-Fi on, default firewall. This is the
+#            mode a fresh install starts in.
 #
 # Only Wi-Fi changes between modes. The radios and SSIDs (wifi-device and
 # wifi-iface sections) that were enabled when going home are remembered and
 # re-enabled on the way back, so one you turned off on purpose stays off.
+#
+# NO_RELOAD=1 only changes the config, for use before wifi is up (uci-defaults).
 
 STATE=/etc/router-mode
 RADIOS=/etc/router-mode.radios
@@ -65,7 +68,7 @@ go_home() {
 		uci set wireless."$r".disabled=1
 	done < "$RADIOS"
 	uci commit wireless
-	wifi
+	[ -n "$NO_RELOAD" ] || wifi
 }
 
 go_travel() {
@@ -80,19 +83,23 @@ go_travel() {
 	done < "$RADIOS"
 	uci commit wireless
 	rm -f "$RADIOS"
-	wifi
+	[ -n "$NO_RELOAD" ] || wifi
 }
 
 apply() {
-	[ "$1" = "$(current)" ] && { echo "already in $1 mode"; return 0; }
+	if [ "$1" = "$(current)" ]; then
+		echo "$1" > "$STATE"
+		echo "already in $1 mode"
+		return 0
+	fi
 	logger -t router-mode "switching to $1 mode"
-	led_busy
+	[ -n "$NO_RELOAD" ] || led_busy
 	case "$1" in
 		home)   go_home ;;
 		travel) go_travel ;;
 	esac
 	echo "$1" > "$STATE"
-	led_done
+	[ -n "$NO_RELOAD" ] || led_done
 	echo "$1 mode"
 }
 

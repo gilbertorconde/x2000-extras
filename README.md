@@ -12,6 +12,8 @@ its own.
   - *home*: Wi-Fi off, the box is a cellular backup WAN behind another router
   - *travel*: Wi-Fi back on, normal travel router
 
+  A fresh install starts in travel mode. Open (passwordless) SSIDs are never
+  brought up: set a Wi-Fi password, then toggle or run `router-mode travel`.
   Also available as `router-mode home|travel|toggle|status`.
 - **Two uplinks with failover**: the modem and the ethernet WAN port, managed
   by mwan3, ethernet preferred.
@@ -37,6 +39,7 @@ the package is removed.
 
 Runs once, on first boot of an image or right after `apk add`:
 
+- puts the box in travel mode (Wi-Fi on), unless it already has a mode
 - detaches the Internet LED from the `wan` netdev trigger
 - finds the existing modem (`proto modemmanager`) and ethernet WAN
   (`proto dhcp` on device `wan`) interfaces; creates `wwan` / `waneth` for

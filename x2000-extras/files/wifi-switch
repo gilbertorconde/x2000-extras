@@ -1,21 +1,17 @@
 #!/bin/sh
-# Switch between the two roles this box has:
-#   home   - cellular backup WAN for OPNsense. Wi-Fi off; the LAN port feeds
-#            OPNsense's WAN. The firewall stays at its defaults: on a CGNAT
-#            SIM it only does the masquerade (unavoidable, the carrier hands
-#            out one address) and keeps the router's own services off the
-#            cellular side. OPNsense does the real filtering.
-#   travel - normal travel router: Wi-Fi on, default firewall. This is the
-#            mode a fresh install starts in.
+# Turn Wi-Fi on or off as a whole, like the hardware Wi-Fi switch on other
+# GL.iNet routers. Bound to the reset button (hold 2-5s), e.g. to run the box
+# as a plain modem/uplink for another router and bring Wi-Fi back when it is
+# used on its own.
 #
-# Only Wi-Fi changes between modes. The radios and SSIDs (wifi-device and
-# wifi-iface sections) that were enabled when going home are remembered and
-# re-enabled on the way back, so one you turned off on purpose stays off.
+# The radios and SSIDs (wifi-device and wifi-iface sections) that were enabled
+# when switching off are remembered and re-enabled when switching on, so one
+# you turned off on purpose stays off. A fresh install starts with Wi-Fi on.
 #
 # NO_RELOAD=1 only changes the config, for use before wifi is up (uci-defaults).
 
-STATE=/etc/router-mode
-RADIOS=/etc/router-mode.radios
+STATE=/etc/wifi-switch
+RADIOS=/etc/wifi-switch.radios
 LED=/sys/class/leds/green:power
 
 . /lib/functions.sh
@@ -32,7 +28,7 @@ current() {
 	found=0
 	config_load wireless
 	config_foreach any_enabled wifi-device
-	[ "$found" = 1 ] && echo travel || echo home
+	[ "$found" = 1 ] && echo on || echo off
 }
 
 led_busy() {
@@ -59,7 +55,7 @@ all_radios() {
 	echo "$1" >> "$RADIOS"
 }
 
-go_home() {
+switch_off() {
 	: > "$RADIOS"
 	config_load wireless
 	config_foreach save_radio wifi-device
@@ -71,8 +67,8 @@ go_home() {
 	[ -n "$NO_RELOAD" ] || wifi
 }
 
-go_travel() {
-	# never went home (or the list was lost): bring up every radio
+switch_on() {
+	# never switched off (or the list was lost): bring up every radio
 	if [ ! -s "$RADIOS" ]; then
 		config_load wireless
 		config_foreach all_radios wifi-device wifi-device
@@ -89,28 +85,28 @@ go_travel() {
 apply() {
 	if [ "$1" = "$(current)" ]; then
 		echo "$1" > "$STATE"
-		echo "already in $1 mode"
+		echo "wifi already $1"
 		return 0
 	fi
-	logger -t router-mode "switching to $1 mode"
+	logger -t wifi-switch "switching wifi $1"
 	[ -n "$NO_RELOAD" ] || led_busy
 	case "$1" in
-		home)   go_home ;;
-		travel) go_travel ;;
+		on)  switch_on ;;
+		off) switch_off ;;
 	esac
 	echo "$1" > "$STATE"
 	[ -n "$NO_RELOAD" ] || led_done
-	echo "$1 mode"
+	echo "wifi $1"
 }
 
 case "$1" in
-	home|travel) apply "$1" ;;
+	on|off) apply "$1" ;;
 	toggle)
-		[ "$(current)" = home ] && apply travel || apply home
+		[ "$(current)" = off ] && apply on || apply off
 		;;
 	status|'') current ;;
 	*)
-		echo "usage: $0 home|travel|toggle|status" >&2
+		echo "usage: $0 on|off|toggle|status" >&2
 		exit 1
 		;;
 esac

@@ -8,13 +8,14 @@ its own.
   (mwan3-aware), instead of the ethernet WAN port only.
 - **Signal bars** (the four indicator LEDs) show the modem's signal quality
   from ModemManager.
-- **Mode toggle on the reset button**: hold 2-5 s to switch between
-  - *home*: Wi-Fi off, the box is a cellular backup WAN behind another router
-  - *travel*: Wi-Fi back on, normal travel router
+- **Wi-Fi on/off on the reset button**: hold 2-5 s to turn all Wi-Fi off or
+  back on, like the hardware Wi-Fi switch on other GL.iNet routers. Handy when
+  the box is used as a plain modem/uplink for another router. Radios you
+  turned off on purpose stay off when Wi-Fi comes back.
 
-  A fresh install starts in travel mode. Open (passwordless) SSIDs are never
-  brought up: set a Wi-Fi password, then toggle or run `router-mode travel`.
-  Also available as `router-mode home|travel|toggle|status`.
+  A fresh install starts with Wi-Fi on. Open (passwordless) SSIDs are never
+  brought up: set a Wi-Fi password, then toggle or run `wifi-switch on`.
+  Also available as `wifi-switch on|off|toggle|status`.
 - **Two uplinks with failover**: the modem and the ethernet WAN port, managed
   by mwan3, ethernet preferred.
 - **Cellular watchdog**: brings the modem connection back after a carrier-side
@@ -28,7 +29,7 @@ Installing it pulls in ModemManager, the QMI/serial modem drivers and mwan3.
 | Press | Action |
 | --- | --- |
 | tap (< 1 s) | reboot |
-| hold 2-5 s | toggle home/travel mode |
+| hold 2-5 s | toggle Wi-Fi on/off |
 | hold 10 s+ | factory reset (power LED starts blinking at 10 s) |
 
 Factory reset is moved up from the stock 5 s so a slow toggle cannot wipe the
@@ -39,7 +40,7 @@ the package is removed.
 
 Runs once, on first boot of an image or right after `apk add`:
 
-- puts the box in travel mode (Wi-Fi on), unless it already has a mode
+- turns Wi-Fi on, unless the box already has a Wi-Fi switch state
 - detaches the Internet LED from the `wan` netdev trigger
 - finds the existing modem (`proto modemmanager`) and ethernet WAN
   (`proto dhcp` on device `wan`) interfaces; creates `wwan` / `waneth` for

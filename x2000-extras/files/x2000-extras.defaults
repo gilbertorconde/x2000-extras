@@ -32,12 +32,19 @@ if ! cmp -s "$HANDLER" /etc/rc.button/reset; then
 	cp "$HANDLER" /etc/rc.button/reset
 fi
 
-# --- Mode -----------------------------------------------------------------------
-# Start in travel mode (Wi-Fi on). A box that already has a mode keeps it.
-# Open SSIDs are not brought up: set a Wi-Fi password and toggle, or run
-# 'router-mode travel' again.
+# --- Wi-Fi switch ---------------------------------------------------------------
+# Carry over the state from when this was called router-mode (home = off,
+# travel = on). Otherwise start with Wi-Fi on; a box that already has a state
+# keeps it. Open SSIDs are not brought up: set a Wi-Fi password and toggle, or
+# run 'wifi-switch on' again.
 
-[ -s /etc/router-mode ] || NO_RELOAD=1 /usr/sbin/router-mode travel >/dev/null
+if [ -s /etc/router-mode ] && [ ! -s /etc/wifi-switch ]; then
+	[ "$(cat /etc/router-mode)" = home ] && echo off > /etc/wifi-switch || echo on > /etc/wifi-switch
+	[ -e /etc/router-mode.radios ] && mv /etc/router-mode.radios /etc/wifi-switch.radios
+fi
+rm -f /etc/router-mode /etc/router-mode.radios
+
+[ -s /etc/wifi-switch ] || NO_RELOAD=1 /usr/sbin/wifi-switch on >/dev/null
 
 # --- Uplinks -------------------------------------------------------------------
 # Two uplinks: the modem (ModemManager) and the ethernet WAN port. Reuse the

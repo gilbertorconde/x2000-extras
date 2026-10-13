@@ -1,7 +1,7 @@
 #!/bin/sh
-# Stock reset handling plus a mode toggle (see /usr/sbin/router-mode):
+# Stock reset handling plus a Wi-Fi on/off toggle (see /usr/sbin/wifi-switch):
 #   tap (<1s)  reboot
-#   hold 2-5s  toggle home/travel mode
+#   hold 2-5s  toggle Wi-Fi on/off
 #   hold 10s+  factory reset (power LED starts blinking at 10s: let go)
 # Factory reset moved up from 5s so a slow toggle can't wipe the box.
 
@@ -26,7 +26,7 @@ released)
 		reboot
 	elif [ "$SEEN" -ge 2 ] && [ "$SEEN" -le 5 ]
 	then
-		/usr/sbin/router-mode toggle >/dev/console 2>&1 &
+		/usr/sbin/wifi-switch toggle >/dev/console 2>&1 &
 	elif [ "$SEEN" -ge 10 ] && [ -n "$OVERLAY" ]
 	then
 		echo "FACTORY RESET" > /dev/console

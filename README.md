@@ -52,7 +52,45 @@ Runs once, on first boot of an image or right after `apk add`:
   config you have already customised is left alone)
 - schedules the watchdog in cron
 
-## Building
+## Installing
+
+The GL-X2000 is supported on OpenWrt snapshots only (not yet in a stable
+release), so these steps assume a snapshot image.
+
+### 1. Get an image with the dependencies built in
+
+mwan3 needs kernel modules, and those only load on the exact kernel they were
+built with. Snapshot repos move daily, so `apk add` on an image that is a few
+days old usually fails to install them. Baking the dependencies into the image
+avoids that:
+
+1. Open the [Firmware Selector for the GL-X2000](https://firmware-selector.openwrt.org/?version=SNAPSHOT&target=qualcommax%2Fipq50xx&id=glinet_gl-x2000).
+2. Under *Customize installed packages*, append:
+   ```
+   modemmanager kmod-usb-net-qmi-wwan kmod-usb-serial-option mwan3
+   ```
+   and, for the web UI, `luci luci-proto-modemmanager luci-app-mwan3`.
+3. Request the build and flash it (sysupgrade from OpenWrt, or the factory
+   image from the stock GL.iNet firmware).
+
+### 2. Install the package
+
+On the router:
+
+```sh
+apk update
+wget -O /tmp/x2000-extras.apk \
+  https://github.com/gilbertorconde/x2000-extras/releases/latest/download/x2000-extras.apk
+apk add --allow-untrusted /tmp/x2000-extras.apk
+```
+
+`--allow-untrusted` is needed because the package is not signed with the
+OpenWrt key. It takes effect immediately, no reboot needed.
+
+To update, run the same commands again. To remove: `apk del x2000-extras`
+(puts the stock reset button handler back).
+
+### Building it into your own image
 
 Add the feed to `feeds.conf`:
 
@@ -69,6 +107,8 @@ make menuconfig   # Utilities -> x2000-extras
 make
 ```
 
-mwan3 needs kernel modules (`kmod-ipt-*`, `kmod-nft-compat`). These only work
-when built with the same kernel as the image, so build the package into the
-image rather than installing it later onto an image built without them.
+## Releasing
+
+CI builds the package on every push. Pushing a tag `vX.Y.Z` that matches
+`PKG_VERSION` in `x2000-extras/Makefile` publishes a GitHub release with the
+`.apk` attached.

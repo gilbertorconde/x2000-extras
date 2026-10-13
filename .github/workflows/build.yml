@@ -1,0 +1,59 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check tag matches PKG_VERSION
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^PKG_VERSION:=//p' x2000-extras/Makefile)
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match PKG_VERSION $version"
+            exit 1
+          fi
+
+      # The GL-X2000 is only supported on snapshots, so build with the
+      # snapshot SDK (apk). The package is arch-independent (PKGARCH:=all).
+      - name: Build
+        uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434 # main
+        env:
+          ARCH: aarch64_cortex-a53
+          FEEDNAME: x2000
+          PACKAGES: x2000-extras
+
+      - name: Collect package
+        run: |
+          mkdir dist
+          find bin/packages -name 'x2000-extras-*.apk' -exec cp {} dist/ \;
+          [ "$(ls dist | wc -l)" = 1 ] || { ls -l dist; exit 1; }
+          # fixed name, so releases/latest/download/x2000-extras.apk always works
+          cp dist/x2000-extras-*.apk dist/x2000-extras.apk
+          ls -l dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: x2000-extras
+          path: dist/
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.apk \
+            --title "$GITHUB_REF_NAME" --generate-notes
